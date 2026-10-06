@@ -1,0 +1,4 @@
+# RAG with the embedding model running on this machine (RAG_EMBEDDINGS=local, ~2 GB download).
+# Tip: install the CPU-only torch first:  pip install torch --index-url https://download.pytorch.org/whl/cpu
+-r requirements-rag.txt
+sentence-transformers

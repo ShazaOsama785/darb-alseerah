@@ -1,6 +1,6 @@
 # Optional: enables the RAG chat (Qdrant + Gemini). Without it the chat uses the basic assistant.
-# Tip: install the much smaller CPU-only torch FIRST:
-#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Light mode (default, used for hosting): embeddings come from the Hugging Face Inference API (needs HF_TOKEN).
 google-genai
 qdrant-client
-sentence-transformers
+huggingface_hub
+numpy
