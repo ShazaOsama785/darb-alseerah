@@ -24,6 +24,11 @@ logger = logging.getLogger("raheeq.rag")
 
 REQUIRED_ENV = ("GEMINI_API_KEY", "QDRANT_URL", "QDRANT_API_KEY")
 
+# Where the question's embedding (bge-m3) is computed:
+#   "api"   -> Hugging Face Inference API: no torch, tiny memory, needs HF_TOKEN (default; used for hosting)
+#   "local" -> sentence-transformers on this machine: ~2 GB model, no HF_TOKEN needed
+EMBEDDINGS = os.environ.get("RAG_EMBEDDINGS", "api").strip().lower()
+
 COLLECTION = "seerah_events"
 DENSE_MODEL = "BAAI/bge-m3"
 MAX_SEQ_LEN = 512
@@ -146,25 +151,33 @@ SYSTEM_PROMPT = f"""
 # ------------------------------------------------------------------ Availability
 def enabled() -> bool:
     """True when the keys are set and the RAG packages are installed."""
-    if not all(os.environ.get(k) for k in REQUIRED_ENV):
+    required = REQUIRED_ENV + (("HF_TOKEN",) if EMBEDDINGS == "api" else ())
+    missing = [k for k in required if not os.environ.get(k)]
+    if missing:
+        if len(missing) < len(required):
+            print("RAG off - missing in .env:", ", ".join(missing))
         return False
     try:
         import google.genai  # noqa: F401
         import qdrant_client  # noqa: F401
-        import sentence_transformers  # noqa: F401
-    except ImportError:
-        logger.warning("RAG keys are set but its packages are missing - pip install -r requirements.txt")
+        if EMBEDDINGS == "api":
+            import huggingface_hub  # noqa: F401
+        else:
+            import sentence_transformers  # noqa: F401
+    except ImportError as e:
+        req = "requirements-rag.txt" if EMBEDDINGS == "api" else "requirements-rag-local.txt"
+        print(f"RAG off - package missing ({e.name}): pip install -r {req}")
         return False
     return True
 
 
 def warm_up_in_background() -> None:
-    """Load the embedding model (~2 GB on first run) without delaying server startup."""
+    """Connect to Qdrant and prepare the embedder without delaying server startup."""
     def _load():
         try:
             get_client()
-            get_embedder()
-            logger.info("RAG ready")
+            embed_query("السيرة النبوية")  # local: loads the ~2 GB model; api: checks the token works
+            print(f"RAG ready (embeddings: {EMBEDDINGS})", flush=True)
         except Exception:
             logger.exception("RAG warm-up failed - chat will fall back to the basic assistant")
     threading.Thread(target=_load, daemon=True).start()
@@ -226,6 +239,30 @@ def get_client():
     return QdrantClient(url=get_env("QDRANT_URL"), api_key=get_env("QDRANT_API_KEY"), timeout=60)
 
 
+def embed_query(text: str) -> list[float]:
+    """bge-m3 dense vector of `text`, L2-normalized (same as the index)."""
+    if EMBEDDINGS == "api":
+        vec = _embed_api(text)
+    else:
+        vec = get_embedder().encode(text, normalize_embeddings=True).tolist()
+    norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+    return [x / norm for x in vec]
+
+
+@lru_cache(maxsize=1)
+def _inference_client():
+    from huggingface_hub import InferenceClient
+    return InferenceClient(provider="hf-inference", api_key=get_env("HF_TOKEN"), timeout=30)
+
+
+def _embed_api(text: str) -> list[float]:
+    out = _inference_client().feature_extraction(text[:2000], model=DENSE_MODEL)
+    vec = out.tolist() if hasattr(out, "tolist") else out
+    while isinstance(vec[0], list):   # [[...]] or per-token [[tok1], [tok2], ...]
+        vec = vec[0]                  # bge-m3 uses the first (CLS) token
+    return [float(x) for x in vec]
+
+
 @lru_cache(maxsize=1)
 def get_embedder():
     from sentence_transformers import SentenceTransformer
@@ -275,10 +312,7 @@ def retrieve(
         return []
 
 
-    q_dense = get_embedder().encode(
-        q_norm,
-        normalize_embeddings=True,
-    ).tolist()
+    q_dense = embed_query(q_norm)
 
 
     dense_pts = client.query_points(

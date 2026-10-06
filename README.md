@@ -59,8 +59,17 @@ cd frontend && npm install && npm run dev    # :5173
 - لو السؤال غير موجود في المصادر، أو خدمة RAG غير مفعّلة، يجيب المساعد الأساسي من نص الحدث المعروض فقط.
 
 ### تفعيله
-1. (اختياري لتقليل الحجم) `pip install torch --index-url https://download.pytorch.org/whl/cpu`
-2. `pip install -r requirements-rag.txt`
-3. في `.env`: `GEMINI_API_KEY` و`QDRANT_URL` و`QDRANT_API_KEY` (انظر `.env.example`).
-4. شغّلي الباك كالمعتاد؛ يطبع عند التشغيل `chat engine: RAG (Qdrant + Gemini)`.
-أول تشغيل يحمّل نموذج `bge-m3` (حوالي 2 جيجابايت) في الخلفية، وحتى ينتهي يرد المساعد الأساسي.
+1. `pip install -r requirements-rag.txt`
+2. في `.env`: `GEMINI_API_KEY` و`QDRANT_URL` و`QDRANT_API_KEY` و`HF_TOKEN` (انظر `.env.example`).
+3. شغّلي الباك كالمعتاد؛ يطبع `chat engine: RAG (Qdrant + Gemini)` ثم `RAG ready (embeddings: api)`.
+
+**أين يُحسب تمثيل السؤال (embedding)؟** يحدده `RAG_EMBEDDINGS` في `.env`:
+- `api` (الافتراضي): عبر Hugging Face Inference API لنفس النموذج `BAAI/bge-m3`، فالباك خفيف (بدون torch) ويعمل على استضافة مجانية.
+- `local`: النموذج يعمل على الجهاز نفسه (`pip install -r requirements-rag-local.txt`، حوالي 2 جيجابايت).
+للتأكد أن الطريقتين تعطيان نفس نتائج البحث: `cd backend && python check_embeddings.py`.
+
+## النشر (رابط واحد للموقع)
+الموقع والـ API والصوت والمساعد يعملون من خدمة واحدة على **Render** (مجانية) عبر `render.yaml`:
+1. ابني الواجهة وارفعيها: `cd frontend && npm run build && cd .. && git add -f -A frontend/dist`.
+2. في Render: **New → Blueprint** واختاري هذا المستودع، ثم أدخلي المفاتيح المطلوبة.
+3. الخدمة المجانية تنام بعد فترة بدون زيارات؛ أول فتح بعدها يأخذ حوالي دقيقة.

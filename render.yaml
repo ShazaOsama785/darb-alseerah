@@ -1,0 +1,29 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
+# One free web service serves the website, the API, the narration audio and the RAG chat.
+services:
+  - type: web
+    name: darb-alseerah
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt -r requirements-rag.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/chapters
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: RAG_EMBEDDINGS
+        value: api
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: GEMINI_MODEL
+        sync: false
+      - key: DENSE_THRESHOLD
+        sync: false
