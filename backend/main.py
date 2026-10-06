@@ -225,3 +225,11 @@ def chat(body: ChatIn):
     except Exception as ex:
         print("chat failed:", str(ex)[:200])
         raise HTTPException(502, "llm failed")
+
+
+# ---------------------------------------------------------------- website
+# In deployment (deploy/Dockerfile) the built frontend is served from here too, so the
+# whole app is ONE address. Registered last: every /api route above takes priority.
+WEB = DATA.parent / "frontend" / "dist"
+if WEB.exists():
+    app.mount("/", StaticFiles(directory=WEB, html=True), name="web")
