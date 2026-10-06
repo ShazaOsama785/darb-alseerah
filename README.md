@@ -186,9 +186,13 @@ cd frontend && npm install && npm run dev
 
 ## الفريق
 
-Ahd Ehab | 3hd.ehab@gmail.com
-Asmaa Gamal | asmaagamalabdalaal@gmail.com
-Roaa Ahmed | roaaelgebal@gmail.com
-Rowaida AbdelFattah | rowidaabdelfatah@gmail.com
-Shaza Osama | shazaosama785@mail.com
+## الفريق
+
+| الاسم | البريد الإلكتروني |
+|---|---|
+| Ahd Ehab | 3hd.ehab@gmail.com |
+| Asmaa Gamal | asmaagamalabdalaal@gmail.com |
+| Roaa Ahmed | roaaelgebal@gmail.com |
+| Rowaida AbdelFattah | rowidaabdelfatah@gmail.com |
+| Shaza Osama | shazaosama785@gmail.com |
 
