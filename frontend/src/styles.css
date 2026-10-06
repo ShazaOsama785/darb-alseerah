@@ -298,3 +298,10 @@ body.reading #bar{display:none}
 .listen .now small{display:block;color:var(--coral);font-weight:700;font-size:12px;font-family:var(--font-ui)}
 .listen .now.err{border-color:var(--coral);color:var(--muted);font-size:14px}
 @media (prefers-reduced-motion:reduce){.eq b{animation:none;height:8px}}
+
+/* ================= CHAT SOURCES (RAG) ================= */
+.m.a .srcs{white-space:normal;margin-top:10px;padding-top:8px;border-top:1px dashed var(--line,rgba(0,0,0,.15));font-size:12.5px;line-height:1.7;color:var(--muted)}
+.m.a .srcs b{display:block;color:var(--teal);font-size:12px;margin-bottom:2px}
+.m.a .src .n{color:var(--coral);font-weight:700;margin-inline-end:4px}
+.m.a .src .t{color:var(--ink)}
+.m.a .src a{color:var(--teal)}

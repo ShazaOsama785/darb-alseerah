@@ -14,6 +14,15 @@ from cleaning import norm   # نفس تطبيع النص العربي المست
 load_dotenv(DATA.parent / ".env")
 MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 client = OpenAI(api_key=os.environ.get("GROQ_API_KEY") or "missing", base_url="https://api.groq.com/openai/v1")
+
+# RAG for the chat (backend/rag.py): used when its keys + packages are present, else the basic assistant
+import logging
+import rag
+log = logging.getLogger("raheeq")
+RAG_ON = rag.enabled()
+if RAG_ON:
+    rag.warm_up_in_background()
+print("chat engine:", "RAG (Qdrant + Gemini)" if RAG_ON else "basic (Groq, current text only)")
 app = FastAPI(title="Raheeq API")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["GET", "POST"], allow_headers=["*"])
 
@@ -181,18 +190,38 @@ def _chat_context(b: ChatIn):
     idx = load(DATA / "index.json")
     return "فصول الدرب:\n" + "\n".join(f"{i}. {c['title']}" for i, c in enumerate(idx, 1))
 
+def _context_title(b: ChatIn):
+    """Title of the event/chapter the reader is on (helps RAG with "this event" questions)."""
+    if b.mode == "event" and b.event_id is not None:
+        e = event(b.event_id)
+        if e:
+            return e["title"]
+    if b.mode in ("chapter", "event") and b.chapter_id and re.fullmatch(r"ch\d+", b.chapter_id):
+        p = DATA / "chapters" / f"{b.chapter_id}.json"
+        if p.exists():
+            return load(p)["title"]
+    return None
+
 @app.post("/api/chat")
 def chat(body: ChatIn):
     msg = " ".join(body.message.split())[:500]
     if not msg:
         raise HTTPException(400, "empty message")
+    if RAG_ON:   # 1) answer from the indexed sources, with citations
+        try:
+            r = rag.answer_question(msg, _context_title(body))
+            if r["answer"] != rag.NOT_FOUND_MSG:
+                return {"reply": r["answer"], "sources": r["resources"], "engine": "rag"}
+            # not in the sources -> 2) the assistant below answers from the text on screen, or says it doesn't know
+        except Exception:
+            log.exception("RAG failed - falling back to the basic assistant")
     hist = [{"role": h["role"], "content": str(h.get("content", ""))[:800]}
             for h in body.history[-6:] if h.get("role") in ("user", "assistant")]
     messages = [{"role": "system", "content": CHAT_SYSTEM + "\n\n" + _chat_context(body)}, *hist, {"role": "user", "content": msg}]
     try:
         r = client.chat.completions.create(model=MODEL, temperature=0.3, max_completion_tokens=900, messages=messages,
                                            extra_body={"reasoning_effort": "low"})
-        return {"reply": (r.choices[0].message.content or "").strip()}
+        return {"reply": (r.choices[0].message.content or "").strip(), "sources": [], "engine": "basic"}
     except Exception as ex:
         print("chat failed:", str(ex)[:200])
         raise HTTPException(502, "llm failed")
