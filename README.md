@@ -180,6 +180,7 @@ cd frontend && npm install && npm run dev
 - **المحتوى:** *الرحيق المختوم* للشيخ صفي الرحمن المباركفوري.
 - **نص المصحف:** [Tanzil](https://tanzil.net) (يُستخدم دون تعديل مع الإشارة للمصدر).
 - **التلاوات:** الشيخ مشاري راشد العفاسي عبر [EveryAyah](https://everyayah.com)، تُشغَّل من مصدرها دون إعادة استضافة.
+- ** موقع الدرر السنية:** https://dorar.net/history/event/12
 - **النماذج:** Coqui XTTS-v2، وBAAI bge-m3، وGoogle Gemini، وGroq.
 
 > **ملاحظة ترخيص:** أوزان XTTS-v2 مرخصة بـ Coqui Public Model License (للاستخدام غير التجاري)، ويلزم مراجعتها قبل أي استخدام تجاري.
