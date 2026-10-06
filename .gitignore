@@ -236,3 +236,8 @@ tts/voices/.*.latents.pt
 tts/output.wav
 tts/cloudflared
 tts/*.log
+
+.env
+.venv/
+__pycache__/
+*.pyc
