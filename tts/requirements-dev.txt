@@ -1,0 +1,8 @@
+# Laptop development: everything except the model (tests use the fake engine)
+fastapi
+uvicorn[standard]
+pydantic>=2
+numpy
+pytest
+httpx
+websockets

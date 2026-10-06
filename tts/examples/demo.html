@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>درب السيرة - تجربة السرد الصوتي</title>
+  <style>
+    body { font-family: "Segoe UI", Tahoma, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem;
+           background: #faf7f0; color: #2b2b2b; line-height: 1.9; }
+    h1 { font-size: 1.4rem; }
+    input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem; }
+    input { direction: ltr; }
+    textarea { height: 9rem; }
+    .buttons { display: flex; gap: .5rem; margin: .75rem 0; flex-wrap: wrap; }
+    button { font: inherit; padding: .45rem 1.1rem; border: 0; border-radius: 6px; cursor: pointer;
+             background: #6b4f2a; color: white; }
+    button.secondary { background: #999; }
+    #status { color: #666; font-size: .9rem; }
+    #transcript p { margin: .3rem 0; padding: .3rem .6rem; border-radius: 6px; color: #999;
+                    transition: background .3s, color .3s; }
+    #transcript p.now { background: #f1e3c4; color: #2b2b2b; }
+    #transcript p.quran { font-family: "Amiri", "Traditional Arabic", serif; font-size: 1.25rem; }
+  </style>
+</head>
+<body>
+  <h1>درب السيرة — تجربة السرد الصوتي</h1>
+
+  <label>Server WebSocket URL</label>
+  <input id="url" value="ws://localhost:8000/ws/tts">
+
+  <label>نص السرد</label>
+  <textarea id="text">كان النبي ﷺ قبل البعثة يخلو بغار حراء، يتعبد فيه الليالي ذوات العدد. ثم جاءه جبريل عليه السلام فقال: اقرأ. ثم أرسلني فقال: { اقْرَأْ بِاسْمِ رَبِّكَ الَّذِي خَلَقَ خَلَقَ الإِْنسَانَ مِنْ عَلَقٍ اقْرَأْ وَرَبُّكَ الأَْكْرَمُ } [ العلق: 1: 3 ] )، فرجع بها النبي ﷺ يرجف فؤاده، حتى دخل على خديجة رضي الله عنها.</textarea>
+
+  <div class="buttons">
+    <button id="speak">تشغيل</button>
+    <button id="stream">محاكاة بثّ من النموذج اللغوي</button>
+    <button id="stop" class="secondary">إيقاف</button>
+  </div>
+  <div id="status">جاهز</div>
+  <div id="transcript"></div>
+
+  <script type="module">
+    import { SeeraNarrator } from "./player.js";
+
+    const $ = (id) => document.getElementById(id);
+    let narrator = null;
+
+    function show(text, cls = "") {
+      document.querySelectorAll("#transcript p.now").forEach((p) => p.classList.remove("now"));
+      const p = document.createElement("p");
+      p.textContent = text;
+      p.className = `now ${cls}`;
+      $("transcript").append(p);
+      p.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function newNarrator() {
+      narrator?.stop();
+      $("transcript").innerHTML = "";
+      const t0 = performance.now();
+      let first = true;
+      narrator = new SeeraNarrator($("url").value.trim(), {
+        onSegment: (i, text) => {
+          if (first) { $("status").textContent = `أول صوت بعد ${((performance.now() - t0) / 1000).toFixed(2)} ث`; first = false; }
+          show(text);
+        },
+        onQuran: (i, text) => show(text, "quran"),
+        onDone: () => { document.querySelectorAll("#transcript p.now").forEach((p) => p.classList.remove("now"));
+                        $("status").textContent += " — انتهى السرد"; },
+        onError: (err) => { $("status").textContent = `خطأ: ${err.message ?? err}`; },
+      });
+      $("status").textContent = "جارٍ الاتصال...";
+      return narrator;
+    }
+
+    $("speak").onclick = async () => {
+      try { await newNarrator().speak($("text").value); $("status").textContent = "جارٍ التوليد..."; }
+      catch (err) { $("status").textContent = `خطأ: ${err.message}`; }
+    };
+
+    // Sends the text in small pieces, like an LLM writing it token by token.
+    $("stream").onclick = async () => {
+      const n = newNarrator();
+      try { await n.begin(); } catch (err) { $("status").textContent = `خطأ: ${err.message}`; return; }
+      $("status").textContent = "النموذج يكتب...";
+      const text = $("text").value;
+      for (let i = 0; i < text.length; i += 6) {
+        if (n !== narrator) return;              // user pressed something else
+        n.append(text.slice(i, i + 6));
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      n.end();
+    };
+
+    $("stop").onclick = () => { narrator?.stop(); narrator = null; $("status").textContent = "متوقف"; };
+  </script>
+</body>
+</html>

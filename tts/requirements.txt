@@ -1,0 +1,8 @@
+# Runtime (GPU machine: Kaggle). Torch comes preinstalled there.
+coqui-tts>=0.27
+transformers==4.57.6   # coqui-tts needs isin_mps_friendly, removed in transformers 5.1
+huggingface_hub
+numpy
+fastapi
+uvicorn[standard]
+pydantic>=2
