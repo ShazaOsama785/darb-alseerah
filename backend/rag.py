@@ -1,19 +1,28 @@
+"""RAG for the «اسأل دَالّ» chat: hybrid retrieval over Qdrant + grounded answers from Gemini.
+
+Built by the team (originally rag_setup.py / rag_main.py) and integrated into the backend:
+  - retrieval: bge-m3 dense vectors + BM25 sparse vectors in Qdrant, fused with RRF
+  - refusal: no source above DENSE_THRESHOLD -> "not found", never a guess
+  - generation: Gemini answers ONLY from the retrieved texts, with [n] citations
+
+Optional: the backend works without it. It is used only when GEMINI_API_KEY, QDRANT_URL and
+QDRANT_API_KEY are set and the packages in requirements.txt are installed (see README).
+Heavy imports (torch, sentence-transformers, qdrant, google-genai) happen lazily, on first use.
+"""
+
+from __future__ import annotations
+
+import logging
 import math
 import os
 import re
+import threading
 import zlib
 from functools import lru_cache
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+logger = logging.getLogger("raheeq.rag")
 
-from google import genai
-from google.genai import types
-from qdrant_client import QdrantClient, models
-from sentence_transformers import SentenceTransformer
+REQUIRED_ENV = ("GEMINI_API_KEY", "QDRANT_URL", "QDRANT_API_KEY")
 
 COLLECTION = "seerah_events"
 DENSE_MODEL = "BAAI/bge-m3"
@@ -132,11 +141,39 @@ SYSTEM_PROMPT = f"""
 
 - لا تستخدم Markdown المعقد؛ استخدم العناوين الفرعية والنص العادي والقوائم عند الحاجة فقط.
 """
-# ------------------------------------------------------------------ Env
+
+
+# ------------------------------------------------------------------ Availability
+def enabled() -> bool:
+    """True when the keys are set and the RAG packages are installed."""
+    if not all(os.environ.get(k) for k in REQUIRED_ENV):
+        return False
+    try:
+        import google.genai  # noqa: F401
+        import qdrant_client  # noqa: F401
+        import sentence_transformers  # noqa: F401
+    except ImportError:
+        logger.warning("RAG keys are set but its packages are missing - pip install -r requirements.txt")
+        return False
+    return True
+
+
+def warm_up_in_background() -> None:
+    """Load the embedding model (~2 GB on first run) without delaying server startup."""
+    def _load():
+        try:
+            get_client()
+            get_embedder()
+            logger.info("RAG ready")
+        except Exception:
+            logger.exception("RAG warm-up failed - chat will fall back to the basic assistant")
+    threading.Thread(target=_load, daemon=True).start()
+
+
 def get_env(name: str) -> str:
     val = os.environ.get(name)
     if not val:
-        raise RuntimeError(f"Environment variable '{name}' غير موجود. ضيفيه في .env أو إعدادات السيرفر.")
+        raise RuntimeError(f"Environment variable '{name}' is missing - add it to .env")
     return val
 
 
@@ -176,26 +213,30 @@ def token_id(token: str) -> int:
     return zlib.crc32(token.encode("utf-8"))
 
 
-def query_sparse_vector(normalized_query: str) -> models.SparseVector:
+def query_sparse_vector(normalized_query: str):
+    from qdrant_client import models
     ids = sorted({token_id(t) for t in bm25_tokens(normalized_query)})
     return models.SparseVector(indices=ids, values=[1.0] * len(ids))
 
 
 # ------------------------------------------------------------------ Clients
 @lru_cache(maxsize=1)
-def get_client() -> QdrantClient:
+def get_client():
+    from qdrant_client import QdrantClient
     return QdrantClient(url=get_env("QDRANT_URL"), api_key=get_env("QDRANT_API_KEY"), timeout=60)
 
 
 @lru_cache(maxsize=1)
-def get_embedder() -> SentenceTransformer:
+def get_embedder():
+    from sentence_transformers import SentenceTransformer
     model = SentenceTransformer(DENSE_MODEL)
     model.max_seq_length = MAX_SEQ_LEN
     return model
 
 
 @lru_cache(maxsize=1)
-def get_gemini() -> genai.Client:
+def get_gemini():
+    from google import genai
     return genai.Client(api_key=get_env("GEMINI_API_KEY"))
 
 
@@ -225,6 +266,8 @@ def retrieve(
     top_k: int = TOP_K,
     min_dense_score: float = DENSE_THRESHOLD,
 ):
+    from qdrant_client import models
+
     client = get_client()
 
     q_norm = normalize_arabic(query)
@@ -322,6 +365,8 @@ def build_user_prompt(question: str, docs: list[dict]) -> str:
     )
 
 def generate_answer(question: str, docs: list[dict]) -> str:
+    from google.genai import types
+
     resp = get_gemini().models.generate_content(
         model=GEMINI_MODEL,
         contents=build_user_prompt(question, docs),
@@ -334,60 +379,23 @@ def generate_answer(question: str, docs: list[dict]) -> str:
     return (resp.text or "").strip()
 
 
-def answer_question(question: str):
+def answer_question(question: str, context_title: str | None = None) -> dict:
+    """{"answer", "resources"} for a question. `context_title` = the event/chapter being read,
+    so questions like "لخّص لي هذا الحدث" retrieve the right passages."""
+    query = f"{context_title}: {question}" if context_title else question
+    prompt_question = (f"{question}\n(القارئ يسأل وهو يقرأ: «{context_title}»)" if context_title else question)
 
-    docs = retrieve(question)
-
+    docs = retrieve(query)
     if not docs:
-        return {
-            "answer": NOT_FOUND_MSG,
-            "resources": []
-        }
+        return {"answer": NOT_FOUND_MSG, "resources": []}
 
-    answer = generate_answer(question, docs)
-
+    answer = generate_answer(prompt_question, docs)
     if not answer:
-        return {
-            "answer": "تعذّر توليد إجابة الآن، حاول مرة أخرى.",
-            "resources": []
-        }
-
+        return {"answer": "تعذّر توليد إجابة الآن، حاول مرة أخرى.", "resources": []}
     if NOT_FOUND_MSG in answer:
-        return {
-            "answer": NOT_FOUND_MSG,
-            "resources": []
-        }
+        return {"answer": NOT_FOUND_MSG, "resources": []}
 
-    cited = {
-    int(n)
-    for n in re.findall(r"\[(\d+)\]", answer)
-    }
-
-    cited = {
-        n
-        for n in cited
-        if 1 <= n <= len(docs)
-    }
-
-    shown = [
-        (i, d)
-        for i, d in enumerate(docs, 1)
-        if i in cited
-    ]
-
-    if not shown:
-        shown = list(enumerate(docs, 1))
-
-    resources = [
-        {
-            "n": i,
-            "title": d.get("title"),
-            "source": d["source"]
-        }
-        for i, d in shown
-    ]
-
-    return {
-        "answer": answer,
-        "resources": resources
-    }
+    cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
+    cited = {n for n in cited if 1 <= n <= len(docs)}
+    shown = [(i, d) for i, d in enumerate(docs, 1) if i in cited] or list(enumerate(docs, 1))
+    return {"answer": answer, "resources": [{"n": i, "title": d.get("title"), "source": d["source"]} for i, d in shown]}

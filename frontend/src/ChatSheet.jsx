@@ -23,7 +23,7 @@ export default function ChatSheet({ ctx, onClose }) {
     setMsgs((o) => [...o, { role: "user", text: q }, { role: "assistant", text: "دَالّ يفكّر...", pending: true }]);
     try {
       const r = await postChat({ mode: ctx.mode, chapter_id: ctx.chapter_id ?? null, event_id: ctx.event_id ?? null, message: q.slice(0, 500), history });
-      setMsgs((o) => [...o.slice(0, -1), { role: "assistant", text: r.reply }]);
+      setMsgs((o) => [...o.slice(0, -1), { role: "assistant", text: r.reply, sources: r.sources || [] }]);
     } catch {
       setMsgs((o) => [...o.slice(0, -1), { role: "assistant", text: "تعذّر الرد الآن. حاول مرة أخرى بعد قليل." }]);
     }
@@ -38,12 +38,39 @@ export default function ChatSheet({ ctx, onClose }) {
         <div className="sh-h"><Daal width={50} think={busy} /><div className="nm">دَالّ<small>{sub}</small></div><button className="x" aria-label="إغلاق" onClick={onClose}>&times;</button></div>
         <div className="msgs" ref={box}>
           {!msgs.length && <div className="lead">اختر سؤالاً من الاقتراحات، أو اكتب سؤالك بنفسك.</div>}
-          {msgs.map((m, i) => <div key={i} className={`m ${m.role === "user" ? "u" : "a"}`}>{m.text}</div>)}
+          {msgs.map((m, i) => (
+            <div key={i} className={`m ${m.role === "user" ? "u" : "a"}`}>
+              {m.text}
+              {m.sources?.length > 0 && <Sources items={m.sources} />}
+            </div>
+          ))}
         </div>
         <div className="chips">{DEF[ctx.mode].map((q) => <button key={q} onClick={() => send(q)}>{q}</button>)}</div>
         <div className="ask"><input value={val} placeholder="اكتب سؤالك هنا" maxLength={500} autoComplete="off" onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} />
           <button className="btn" disabled={busy} onClick={() => send()}>إرسال</button></div>
       </div></div>
     </>
+  );
+}
+
+/** Sources the RAG answer is based on - each [n] in the answer points to one of these. */
+function Sources({ items }) {
+  return (
+    <div className="srcs">
+      <b>المصادر</b>
+      {items.map((s) => {
+        const parts = String(s.source || "").split(" | ");
+        const url = parts.find((p) => /^https?:\/\//.test(p));
+        const text = parts.filter((p) => p !== url).join(" · ");
+        return (
+          <div key={s.n} className="src">
+            <span className="n">[{s.n}]</span>
+            {s.title && <span className="t">{s.title} — </span>}
+            {text}
+            {url && <> · <a href={url} target="_blank" rel="noreferrer">الرابط</a></>}
+          </div>
+        );
+      })}
+    </div>
   );
 }
